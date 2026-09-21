@@ -1,0 +1,8 @@
+{
+  "name": "まもる君收集雷達",
+  "short_name": "まもる君雷達",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f5f5f7",
+  "theme_color": "#007aff"
+}

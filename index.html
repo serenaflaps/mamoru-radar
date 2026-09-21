@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>宮古島 まもる君 收集雷達</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 15px; background: #f5f5f7; }
+    h1 { font-size: 20px; text-align: center; margin-bottom: 5px; }
+    .progress-bar { background: #e0e0e0; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 15px; }
+    .progress-fill { background: #34c759; height: 100%; width: 0%; transition: width 0.3s; }
+    .card { background: white; border-radius: 12px; padding: 15px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; }
+    .card.visited { background: #e8f5e9; border: 1px solid #c8e6c9; }
+    .card.nearby { background: #fff3e0; border: 1px solid #ffe0b2; }
+    .info h3 { margin: 0 0 5px 0; font-size: 16px; }
+    .info p { margin: 0; font-size: 13px; color: #666; }
+    button { background: #007aff; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+    button:disabled { background: #ccc; }
+  </style>
+</head>
+<body>
+
+  <h1>まもる君 收集雷達</h1>
+  <div style="text-align:center; font-size:14px; margin-bottom:10px;" id="status-text">打卡進度：0 / 21</div>
+  <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+
+  <div id="spot-list">定位中，請允許位置權限...</div>
+
+<script>
+  // 21座 まもる君 座標資料集（可自行補充精確座標）
+  const spots = [
+    { id: '1', name: '宮古空港 (すすむ君)', lat: 24.7831, lng: 125.2952, visited: false },
+    { id: '2', name: '平良港 (まもる君)', lat: 24.8080, lng: 125.2762, visited: false },
+    { id: '3', name: '伊良部大橋頭 (じゅんき君)', lat: 24.8210, lng: 125.2631, visited: false },
+    { id: '4', name: '來間大橋 (てつや君)', lat: 24.7335, lng: 125.2625, visited: false },
+    { id: '5', name: '池間大橋 (たくや君)', lat: 24.9281, lng: 125.2423, visited: false }
+  ];
+
+  // 讀取本地紀錄
+  const savedData = JSON.parse(localStorage.getItem('mamoru_progress') || '{}');
+  spots.forEach(s => { if(savedData[s.id]) s.visited = true; });
+
+  // 哈維賽公式（Haversine formula）計算地球兩點距離 (公尺)
+  function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  function checkIn(id) {
+    const spot = spots.find(s => s.id === id);
+    if (spot) {
+      spot.visited = true;
+      savedData[id] = true;
+      localStorage.setItem('mamoru_progress', JSON.stringify(savedData));
+      render();
+    }
+  }
+
+  function render(userLat = null, userLng = null) {
+    const visitedCount = spots.filter(s => s.visited).length;
+    document.getElementById('status-text').innerText = `打卡進度：${visitedCount} / ${spots.length}`;
+    document.getElementById('progress-fill').style.width = `${(visitedCount / spots.length) * 100}%`;
+
+    const listHtml = spots.map(s => {
+      let distText = '未知距離';
+      let isNearby = false;
+      if (userLat !== null && userLng !== null) {
+        const d = getDistance(userLat, userLng, s.lat, s.lng);
+        distText = d > 1000 ? `${(d/1000).toFixed(2)} km` : `${Math.round(d)} m`;
+        if (d <= 300) isNearby = true;
+      }
+
+      return `
+        <div class="card ${s.visited ? 'visited' : (isNearby ? 'nearby' : '')}">
+          <div class="info">
+            <h3>${s.name} ${s.visited ? '✅' : ''}</h3>
+            <p>距離：${distText}</p>
+          </div>
+          <button onclick="checkIn('${s.id}')" ${s.visited ? 'disabled' : ''}>
+            ${s.visited ? '已打卡' : '打卡'}
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    document.getElementById('spot-list').innerHTML = listHtml;
+  }
+
+  // 啟用 GPS 定位追蹤
+  if ('geolocation' in navigator) {
+    navigator.geolocation.watchPosition(pos => {
+      render(pos.coords.latitude, pos.coords.longitude);
+    }, err => {
+      console.error(err);
+      render();
+    }, { enableHighAccuracy: true });
+  } else {
+    render();
+  }
+
+  // 註冊 Service Worker (PWA)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js');
+  }
+</script>
+</body>
+</html>
