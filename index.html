@@ -6,7 +6,7 @@
   <title>宮古島 まもる君 收集雷達</title>
   <link rel="manifest" href="manifest.json">
   
-  <!-- Leaflet 地圖樣式 (免 API Key 可視化地圖) -->
+  <!-- Leaflet 地圖樣式 -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
   <style>
@@ -14,11 +14,14 @@
     h1 { font-size: 20px; text-align: center; margin: 10px 0 5px 0; }
     .status-header { text-align: center; font-size: 14px; font-weight: bold; color: #333; margin-bottom: 8px; }
     
-    .progress-bar { background: #e0e0e0; height: 12px; border-radius: 6px; overflow: hidden; margin-bottom: 15px; }
+    .progress-bar { background: #e0e0e0; height: 12px; border-radius: 6px; overflow: hidden; margin-bottom: 12px; }
     .progress-fill { background: #34c759; height: 100%; width: 0%; transition: width 0.3s ease; }
     
-    /* 可視化地圖容器 */
-    #map { height: 280px; width: 100%; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    /* 聲音雷達控制區塊 */
+    .audio-control-card { background: white; border-radius: 12px; padding: 12px 15px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+    .audio-status { font-size: 13px; font-weight: bold; color: #555; }
+
+    #map { height: 260px; width: 100%; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
 
     .card { background: white; border-radius: 12px; padding: 12px 15px; margin-bottom: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; }
     .card.visited { background: #e8f5e9; border: 1px solid #c8e6c9; }
@@ -32,6 +35,8 @@
     .btn-check { background: #007aff; color: white; }
     .btn-check:disabled { background: #ccc; }
     .btn-map { background: #34a853; color: white; }
+    .btn-audio { background: #ff9500; color: white; }
+    .btn-audio.active { background: #34c759; }
   </style>
 </head>
 <body>
@@ -40,17 +45,18 @@
   <div class="status-header" id="status-text">打卡進度：0 / 21</div>
   <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
 
-  <!-- 可視化地圖區塊 -->
-  <div id="map"></div>
+  <!-- 雷達音效控制列 -->
+  <div class="audio-control-card">
+    <div class="audio-status" id="audio-status-text">🔊 聲音雷達：未開啟</div>
+    <button class="btn btn-audio" id="audio-btn" onclick="toggleAudioRadar()">開啟雷達聲</button>
+  </div>
 
-  <!-- 打卡地點清單 -->
+  <div id="map"></div>
   <div id="spot-list">定位中，請允許位置權限...</div>
 
-  <!-- Leaflet 地圖腳本 -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-  // 宮古島 21 座 まもる君 完整真實座標陣列
   const spots = [
     { id: '1', name: '宮古島警察署 (まもる君 & まる子ちゃん)', lat: 24.7958, lng: 125.2862 },
     { id: '2', name: '宮古空港派出所 (いたる君)', lat: 24.7831, lng: 125.2952 },
@@ -75,11 +81,87 @@
     { id: '21', name: '多良間島 (つよし君)', lat: 24.6562, lng: 124.7020 }
   ];
 
-  // 讀取打卡進度
   const savedData = JSON.parse(localStorage.getItem('mamoru_progress') || '{}');
   spots.forEach(s => { s.visited = !!savedData[s.id]; });
 
-  // 初始化 Leaflet 可視化地圖 (以宮古島中心點為視角)
+  // Web Audio API 音效引擎
+  let audioCtx = null;
+  let isAudioEnabled = false;
+  let beepTimer = null;
+  let currentClosestDistance = Infinity;
+
+  function initAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  }
+
+  function playBeep(freq = 880, duration = 0.1) {
+    if (!audioCtx || !isAudioEnabled) return;
+    try {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    } catch(e) { console.error(e); }
+  }
+
+  function toggleAudioRadar() {
+    initAudio();
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    isAudioEnabled = !isAudioEnabled;
+    const btn = document.getElementById('audio-btn');
+    const status = document.getElementById('audio-status-text');
+
+    if (isAudioEnabled) {
+      btn.innerText = '關閉雷達聲';
+      btn.classList.add('active');
+      status.innerText = '🔊 聲音雷達：運作中';
+      playBeep(1000, 0.15); // 測試發音
+    } else {
+      btn.innerText = '開啟雷達聲';
+      btn.classList.remove('active');
+      status.innerText = '🔇 聲音雷達：已關閉';
+      if (beepTimer) clearInterval(beepTimer);
+    }
+  }
+
+  // 依據最短距離更新嗶嗶聲頻率
+  function updateRadarBeep(closestDist) {
+    if (!isAudioEnabled) return;
+    if (beepTimer) clearInterval(beepTimer);
+
+    // 超過 500m 靜音
+    if (closestDist > 500) return;
+
+    let interval = 1500; // 預設緩慢 1.5s 一聲
+    let pitch = 600;
+
+    if (closestDist <= 100) {
+      interval = 250; // 極度急促 0.25s
+      pitch = 1000;
+    } else if (closestDist <= 300) {
+      interval = 600; // 急促 0.6s
+      pitch = 850;
+    } else if (closestDist <= 500) {
+      interval = 1200; // 緩慢 1.2s
+      pitch = 700;
+    }
+
+    beepTimer = setInterval(() => {
+      playBeep(pitch, 0.08);
+    }, interval);
+  }
+
+  // 地圖圖資初始化
   const map = L.map('map').setView([24.7800, 125.3000], 10);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
@@ -88,7 +170,6 @@
 
   let markers = {};
 
-  // 自訂標記圖標
   function createIcon(isVisited) {
     return L.divIcon({
       className: 'custom-pin',
@@ -98,7 +179,6 @@
     });
   }
 
-  // 初始化地圖標記
   spots.forEach(s => {
     const marker = L.marker([s.lat, s.lng], { icon: createIcon(s.visited) }).addTo(map);
     const googleMapUrl = `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
@@ -111,7 +191,6 @@
     markers[s.id] = marker;
   });
 
-  // Haversine 距離計算 (公尺)
   function getDistance(lat1, lon1, lat2, lon2) {
     const R = 6371000;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -122,17 +201,13 @@
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   }
 
-  // 打卡邏輯
   function checkIn(id) {
     const spot = spots.find(s => s.id === id);
     if (spot) {
       spot.visited = true;
       savedData[id] = true;
       localStorage.setItem('mamoru_progress', JSON.stringify(savedData));
-      
-      // 更新地圖圖標狀態
       markers[id].setIcon(createIcon(true));
-      
       render();
     }
   }
@@ -142,6 +217,8 @@
     document.getElementById('status-text').innerText = `打卡進度：${visitedCount} / ${spots.length}`;
     document.getElementById('progress-fill').style.width = `${(visitedCount / spots.length) * 100}%`;
 
+    let minDistance = Infinity;
+
     const listHtml = spots.map(s => {
       let distText = '未知距離';
       let isNearby = false;
@@ -149,6 +226,11 @@
         const d = getDistance(userLat, userLng, s.lat, s.lng);
         distText = d > 1000 ? `${(d/1000).toFixed(2)} km` : `${Math.round(d)} m`;
         if (d <= 300) isNearby = true;
+        
+        // 僅計算「尚未打卡」的地點距離來觸發雷達音效
+        if (!s.visited && d < minDistance) {
+          minDistance = d;
+        }
       }
 
       const googleMapUrl = `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
@@ -170,9 +252,14 @@
     }).join('');
 
     document.getElementById('spot-list').innerHTML = listHtml;
+
+    // 依據最近的未打卡地點更新聲音頻率
+    if (userLat !== null && userLng !== null) {
+      updateRadarBeep(minDistance);
+    }
   }
 
-  // 啟動 GPS 定位監聽
+  // 啟用 GPS 位置持續監聽
   if ('geolocation' in navigator) {
     navigator.geolocation.watchPosition(pos => {
       render(pos.coords.latitude, pos.coords.longitude);
@@ -184,7 +271,6 @@
     render();
   }
 
-  // 註冊 PWA Service Worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js');
   }
